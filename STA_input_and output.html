@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Guide to Static Timing Analysis (STA)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.13.18/dist/katex.min.css" xintegrity="sha384-zT1M0mB5q6n2y5n2n2B7b2d5r2n2n2n2" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.13.18/dist/katex.min.js" xintegrity="sha384-zT1M0mB5q6n2y5n2n2B7b2d5r2n2n2n2" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.13.18/dist/contrib/auto-render.min.js" xintegrity="sha384-y0Y1U5b2Q5s2v5n2B7b2d5r2n2n2n2" crossorigin="anonymous"></script>
+    <!-- Chosen Palette: Warm Neutrals -->
+    <!-- Application Structure Plan: The application is structured as a narrative journey, designed to guide a user from foundational concepts to detailed specifics, directly addressing their questions. 
+        1.  **Introduction ('Why STA?'):** Starts with the core motivation, establishing the importance of STA.
+        2.  **STA in the ASIC Flow ('Where does it fit?'):** An interactive timeline visualizes the ASIC design stages. This is crucial for context. Clicking a stage reveals why STA is performed there, showing the iterative process. This directly answers a key user question.
+        3.  **The Evolution of Accuracy ('Why repeat STA?'):** This section directly tackles the user's main point of confusion. It explains that while the *types* of input files are the same, their *content and accuracy* evolve dramatically. A visual comparison (Ideal vs. Real) drives this point home.
+        4.  **Deep Dive on Files ('What are the inputs/outputs?'):** An interactive tabbed component allows users to explore each input and output file type. This organizes a large amount of detailed information into a digestible format, preventing overwhelm.
+        5.  **Interactive Demo ('How do inputs affect outputs?'):** A dynamic chart demonstrates the direct impact of parasitic data (.spef) on timing slack. This transforms an abstract concept into a tangible, visual experience.
+        6.  **AI STA Assistant:** A new, interactive chat interface allows users to ask free-form questions about any STA topic. This adds a powerful conversational layer, turning the static page into a dynamic learning tool.
+        This top-down, interactive structure was chosen to build understanding layer by layer, making a complex topic intuitive and engaging. -->
+    <!-- Visualization & Content Choices: 
+        1.  **ASIC Flow Diagram:** Report Info: The different stages of ASIC design where STA is run. Goal: Organize & Show Change. Viz/Method: A horizontal flowchart made with styled HTML divs and buttons. Interaction: Clicking a stage button updates a text panel with details about STA at that stage. Justification: A static diagram is less engaging. This interaction encourages exploration and clearly shows STA's role at each step. Method: Vanilla JS DOM manipulation.
+        2.  **Parasitics Evolution:** Report Info: The difference between estimated wire delays (pre-layout) and actual extracted parasitics (post-layout). Goal: Compare. Viz/Method: A side-by-side visual comparison using styled HTML divs. Interaction: None, it's a static visual to simplify a core concept. Justification: Clearly illustrates the "garbage in, garbage out" principle in a simple visual metaphor. Method: HTML/Tailwind.
+        3.  **Timing Slack Chart:** Report Info: Timing slack is the key output of STA, and it's heavily affected by parasitic delays. Goal: Show Relationships & Change. Viz/Method: A dynamic bar chart. Interaction: Buttons allow the user to toggle the chart's data between a "Pre-Layout Estimate" and a "Post-Layout Accurate" view. The bars change height, visually showing slack decreasing as more accurate (and higher) parasitic delays are considered. Justification: This is the most effective way to demonstrate the cause-and-effect relationship between the `.spef` input and the final timing output. Library: Chart.js (Canvas).
+        4.  **AI Assistant Chat:** Report Info: User's queries about STA concepts. Goal: Inform & Clarify. Viz/Method: A chat interface with an input box and a display area. Interaction: User types a question, hits a button, and the Gemini API provides an answer. Justification: This adds a powerful, conversational layer to the static content, allowing users to delve deeper into topics and get immediate clarification on anything they don't understand. Library/Method: Gemini API for LLM, Vanilla JS for UI handling and API calls, and Marked.js for Markdown rendering.
+        All choices adhere to the NO SVG/Mermaid constraint and are designed to make the information interactive and easily digestible within the chosen application structure. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            background-color: #FDFBF8;
+            color: #4A4A4A;
+            font-family: 'Inter', sans-serif;
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        .active-nav {
+            color: #D97706;
+            font-weight: 500;
+        }
+        .flow-step {
+            transition: all 0.3s ease;
+        }
+        .flow-step-active {
+            background-color: #FBBF24;
+            color: #422006;
+            transform: translateY(-4px);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        .tab-button-active {
+            border-color: #FBBF24;
+            background-color: #FEF3C7;
+            color: #92400E;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 700px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 400px;
+            }
+        }
+        .chat-container {
+            min-height: 400px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .chat-bubble {
+            padding: 10px 15px;
+            border-radius: 20px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        .user-bubble {
+            background-color: #C7E5FF;
+            align-self: flex-end;
+        }
+        .ai-bubble {
+            background-color: #E2E8F0;
+            align-self: flex-start;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <nav class="sticky top-0 bg-white/80 backdrop-blur-lg shadow-sm z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center">
+                    <span class="font-bold text-xl text-amber-700">STA Demystified</span>
+                </div>
+                <div class="hidden md:block">
+                    <div class="ml-10 flex items-baseline space-x-4">
+                        <a href="#why-sta" class="text-gray-600 hover:text-amber-600 px-3 py-2 rounded-md text-sm font-medium">Why STA?</a>
+                        <a href="#sta-flow" class="text-gray-600 hover:text-amber-600 px-3 py-2 rounded-md text-sm font-medium">The Flow</a>
+                        <a href="#evolution" class="text-gray-600 hover:text-amber-600 px-3 py-2 rounded-md text-sm font-medium">Evolution of Accuracy</a>
+                        <a href="#files" class="text-gray-600 hover:text-amber-600 px-3 py-2 rounded-md text-sm font-medium">Files Explained</a>
+                        <a href="#demo" class="text-gray-600 hover:text-amber-600 px-3 py-2 rounded-md text-sm font-medium">Interactive Demo</a>
+                        <a href="#assistant" class="text-gray-600 hover:text-amber-600 px-3 py-2 rounded-md text-sm font-medium">AI Assistant ✨</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        
+        <section id="why-sta" class="text-center mb-20">
+            <h1 class="text-4xl md:text-5xl font-bold text-amber-800 tracking-tight">Why is Static Timing Analysis So Critical?</h1>
+            <p class="mt-4 max-w-3xl mx-auto text-lg text-gray-700">
+                In multi-million gate ASIC designs, we need to answer one question with absolute certainty: "Will this chip run at the required speed?" Static Timing Analysis (STA) is the cornerstone method for verifying this. It checks all possible timing paths in a design without simulation, ensuring the chip meets its performance goals under all conditions. Think of it as a full-scale inspection of the chip's internal highway system to guarantee signals arrive on time.
+            </p>
+        </section>
+
+        <section id="sta-flow" class="mb-20">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl font-bold text-amber-800">Where STA Fits in the ASIC Design Flow</h2>
+                <p class="mt-2 max-w-2xl mx-auto text-gray-600">STA isn't a one-time check. It's an iterative process performed at every major stage of physical design. Click on each stage below to see why STA is essential at that point.</p>
+            </div>
+
+            <div class="relative">
+                <div class="absolute top-1/2 left-0 w-full h-1 bg-amber-200 -translate-y-1/2"></div>
+                <div class="relative flex justify-between items-center">
+                    <div class="flow-step-marker w-4 h-4 bg-amber-500 rounded-full z-10"></div>
+                    <div class="flow-step-marker w-4 h-4 bg-amber-500 rounded-full z-10"></div>
+                    <div class="flow-step-marker w-4 h-4 bg-amber-500 rounded-full z-10"></div>
+                    <div class="flow-step-marker w-4 h-4 bg-amber-500 rounded-full z-10"></div>
+                    <div class="flow-step-marker w-4 h-4 bg-amber-500 rounded-full z-10"></div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4 text-center">
+                <button data-stage="synthesis" class="flow-step p-4 bg-white rounded-lg shadow-md hover:shadow-xl hover:bg-amber-100 cursor-pointer">
+                    <span class="text-2xl">①</span>
+                    <h3 class="font-semibold mt-2">Synthesis</h3>
+                </button>
+                <button data-stage="floorplan" class="flow-step p-4 bg-white rounded-lg shadow-md hover:shadow-xl hover:bg-amber-100 cursor-pointer">
+                    <span class="text-2xl">②</span>
+                    <h3 class="font-semibold mt-2">Floorplan</h3>
+                </button>
+                <button data-stage="placement" class="flow-step p-4 bg-white rounded-lg shadow-md hover:shadow-xl hover:bg-amber-100 cursor-pointer">
+                    <span class="text-2xl">③</span>
+                    <h3 class="font-semibold mt-2">Placement</h3>
+                </button>
+                <button data-stage="cts" class="flow-step p-4 bg-white rounded-lg shadow-md hover:shadow-xl hover:bg-amber-100 cursor-pointer">
+                    <span class="text-2xl">④</span>
+                    <h3 class="font-semibold mt-2">CTS</h3>
+                </button>
+                <button data-stage="routing" class="flow-step p-4 bg-white rounded-lg shadow-md hover:shadow-xl hover:bg-amber-100 cursor-pointer">
+                    <span class="text-2xl">⑤</span>
+                    <h3 class="font-semibold mt-2">Routing</h3>
+                </button>
+            </div>
+            
+            <div id="flow-details" class="mt-8 p-6 bg-amber-50 border border-amber-200 rounded-lg min-h-[150px]">
+                <h4 id="flow-title" class="text-xl font-bold text-amber-900">Select a stage to see details</h4>
+                <p id="flow-description" class="mt-2 text-gray-800">Details about the selected stage will appear here.</p>
+            </div>
+        </section>
+
+        <section id="evolution" class="mb-20">
+             <div class="text-center mb-12">
+                <h2 class="text-3xl font-bold text-amber-800">The Evolution of Accuracy: Why Repeat STA?</h2>
+                <p class="mt-2 max-w-3xl mx-auto text-gray-600">You use the "same" types of inputs (.lib, .sdc, etc.) at each stage, but their accuracy drastically improves. Early STA runs use rough estimates. Later runs use precise, physically-aware data. This iterative refinement is key to converging on a design that works.</p>
+            </div>
+            <div class="grid md:grid-cols-2 gap-8 items-center">
+                <div class="p-6 bg-white rounded-lg shadow-md border border-gray-200">
+                    <h3 class="text-xl font-semibold text-center text-blue-700">Pre-Layout STA (Estimation)</h3>
+                    <p class="text-center text-sm text-gray-500 mb-4">(After Synthesis)</p>
+                    <div class="w-24 h-24 mx-auto bg-blue-100 rounded-full flex items-center justify-center text-4xl mb-4">🌐</div>
+                    <p class="text-gray-700">At this stage, the tool has no idea where cells will be placed. It uses a <span class="font-semibold">Wire Load Model (WLM)</span> to guess the length, capacitance, and resistance of wires based on the number of pins they connect to (fanout). It's a statistical guess, and often inaccurate.</p>
+                    <p class="mt-2 font-semibold text-center text-blue-600">Input: Estimated Parasitics</p>
+                </div>
+                <div class="p-6 bg-white rounded-lg shadow-md border border-gray-200">
+                    <h3 class="text-xl font-semibold text-center text-green-700">Post-Layout STA (Extraction)</h3>
+                    <p class="text-center text-sm text-gray-500 mb-4">(After Routing)</p>
+                     <div class="w-24 h-24 mx-auto bg-green-100 rounded-full flex items-center justify-center text-4xl mb-4">🛰️</div>
+                    <p class="text-gray-700">After routing, every wire has a physical path. The tool can now <span class="font-semibold">extract</span> the actual resistance and capacitance (parasitics) of these wires. This data, stored in a <span class="font-semibold">.spef</span> file, is highly accurate and reflects the final silicon.</p>
+                    <p class="mt-2 font-semibold text-center text-green-600">Input: Extracted, Accurate Parasitics</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="files" class="mb-20">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl font-bold text-amber-800">Inputs & Outputs: The Files of STA</h2>
+                <p class="mt-2 max-w-2xl mx-auto text-gray-600">Understanding STA means understanding its core files. Explore the key inputs and the resulting outputs that determine success or failure.</p>
+            </div>
+            <div class="flex flex-wrap justify-center border-b border-gray-300">
+                <button data-tab="inputs" class="tab-button py-2 px-4 border-b-2 font-medium text-lg text-gray-600 hover:text-amber-700">Inputs</button>
+                <button data-tab="outputs" class="tab-button py-2 px-4 border-b-2 font-medium text-lg text-gray-600 hover:text-amber-700">Outputs</button>
+            </div>
+            <div id="tab-content" class="mt-8">
+            </div>
+        </section>
+
+        <section id="demo" class="bg-white p-8 rounded-lg shadow-lg mb-20">
+             <div class="text-center mb-8">
+                <h2 class="text-3xl font-bold text-amber-800">Interactive Demo: The Impact of Parasitics</h2>
+                <p class="mt-2 max-w-2xl mx-auto text-gray-600">See for yourself how timing slack changes as our parasitic information becomes more accurate. Toggle between the pre-layout estimate and the post-layout extracted values.</p>
+            </div>
+            <div class="chart-container">
+                <canvas id="timingChart"></canvas>
+            </div>
+            <div class="mt-6 flex justify-center space-x-4">
+                <button id="preLayoutBtn" class="bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition">Pre-Layout Estimate</button>
+                <button id="postLayoutBtn" class="bg-green-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 transition">Post-Layout Accurate</button>
+            </div>
+        </section>
+
+        <section id="assistant" class="bg-gray-100 p-8 rounded-lg shadow-lg">
+            <div class="text-center mb-8">
+                <h2 class="text-3xl font-bold text-gray-800">AI STA Assistant ✨</h2>
+                <p class="mt-2 text-gray-600">Ask any question about STA or ASIC design and get an instant, expert-level explanation.</p>
+            </div>
+            <div class="flex flex-col h-[500px] border border-gray-300 rounded-lg p-4 bg-white shadow-inner chat-container">
+                <div id="chat-history" class="flex-grow flex flex-col space-y-4">
+                    <div class="ai-bubble p-4 self-start">Hello! I'm your AI STA assistant. What would you like to know?</div>
+                </div>
+                <div id="loading-indicator" class="hidden text-center text-gray-500 mt-4 animate-pulse">Assistant is thinking...</div>
+            </div>
+            <div class="mt-4 flex space-x-2">
+                <input type="text" id="chat-input" placeholder="Ask a question..." class="flex-grow p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition">
+                <button id="chat-send" class="bg-amber-600 text-white p-3 rounded-lg font-semibold hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-opacity-50 transition">Send</button>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="bg-gray-800 mt-20">
+        <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 text-center text-white">
+            <p>An Interactive Guide to Static Timing Analysis</p>
+        </div>
+    </footer>
+
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const flowData = {
+        synthesis: {
+            title: 'STA after Synthesis',
+            description: 'This is the earliest form of STA. The design is just a logical netlist without physical information. The tool uses statistical Wire Load Models (WLMs) to estimate interconnect delay. The goal here is not accuracy, but to catch major architectural issues and guide the synthesis tool to create a timing-aware netlist.'
+        },
+        floorplan: {
+            title: 'STA after Floorplanning',
+            description: 'Now we have a chip outline and major block placements. While individual cells aren\'t placed, we have better estimates for long global nets between blocks. STA at this stage helps validate the floorplan and identify potential congestion or timing issues between large macros early on.'
+        },
+        placement: {
+            title: 'STA after Placement',
+            description: 'All standard cells are now placed on the die. The tool can calculate wire lengths with much higher accuracy. STA here provides a much more realistic picture of timing. This is a critical step for identifying and fixing setup time violations before the clock tree is built.'
+        },
+        cts: {
+            title: 'STA after Clock Tree Synthesis (CTS)',
+            description: 'The clock network is now real, not ideal. The tool has inserted buffers and balanced the clock tree. STA after CTS is crucial for analyzing both setup and hold violations, as we now have accurate clock skew and latency data for every flip-flop in the design. This is where hold timing becomes a primary focus.'
+        },
+        routing: {
+            title: 'STA after Routing (Signoff)',
+            description: 'This is the final and most accurate STA run. All signal nets are physically routed. We extract the actual resistance (R) and capacitance (C) from the layout into a .spef file. This provides "golden" signoff timing numbers. If the design passes timing here, it is ready for manufacturing.'
+        }
+    };
+
+    const flowSteps = document.querySelectorAll('.flow-step');
+    const flowTitle = document.getElementById('flow-title');
+    const flowDescription = document.getElementById('flow-description');
+
+    flowSteps.forEach(step => {
+        step.addEventListener('click', () => {
+            flowSteps.forEach(s => s.classList.remove('flow-step-active'));
+            step.classList.add('flow-step-active');
+            const stage = step.dataset.stage;
+            flowTitle.textContent = flowData[stage].title;
+            flowDescription.textContent = flowData[stage].description;
+        });
+    });
+
+    flowSteps[0].click();
+
+    const tabData = {
+        inputs: `
+            <div class="grid md:grid-cols-2 gap-6">
+                <div class="p-4 bg-gray-50 rounded-lg border">
+                    <h4 class="font-bold text-lg text-gray-800">Design Netlist (.v / .vhdl / .def)</h4>
+                    <p class="mt-1 text-gray-600"><b>What it is:</b> Describes the circuit's logic gates and their connections. Pre-layout, it's a Verilog/VHDL file. Post-layout, a .def (Design Exchange Format) file also includes physical placement info.</p>
+                    <p class="mt-1 text-gray-600"><b>Evolution:</b> The logical netlist (.v) is constant, but the physical information (.def) is added and refined from placement onwards.</p>
+                </div>
+                <div class="p-4 bg-gray-50 rounded-lg border">
+                    <h4 class="font-bold text-lg text-gray-800">Timing Libraries (.lib)</h4>
+                    <p class="mt-1 text-gray-600"><b>What it is:</b> The "datasheet" for every standard cell (AND, OR, FF, etc.). It characterizes cell delay, transition times, and internal power consumption under various process, voltage, and temperature (PVT) conditions.</p>
+                    <p class="mt-1 text-gray-600"><b>Evolution:</b> The .lib files themselves don't change, but we run STA across multiple .lib files (e.g., worst-case, best-case) to ensure the chip works across all conditions.</p>
+                </div>
+                <div class="p-4 bg-gray-50 rounded-lg border">
+                    <h4 class="font-bold text-lg text-gray-800">Timing Constraints (.sdc)</h4>
+                    <p class="mt-1 text-gray-600"><b>What it is:</b> The "rulebook" from the designer. The Synopsys Design Constraints (.sdc) file defines clock frequencies, input/output delays, false paths, and other timing requirements. It tells the STA tool what the performance goals are.</p>
+                    <p class="mt-1 text-gray-600"><b>Evolution:</b> The core SDC is written early. It may be refined during design to tighten or relax specific paths as needed.</p>
+                </div>
+                <div class="p-4 bg-gray-50 rounded-lg border">
+                    <h4 class="font-bold text-lg text-gray-800">Parasitics (.spef)</h4>
+                    <p class="mt-1 text-gray-600"><b>What it is:</b> The most important evolving input. Standard Parasitic Exchange Format (.spef) files contain the extracted resistance (R) and capacitance (C) of the wires. These values determine interconnect delay.</p>
+                    <p class="mt-1 text-gray-600"><b>Evolution:</b> This is the key difference between stages. Pre-placement, there's no .spef. After placement, it's estimated. After routing, it's highly accurate and extracted from the final layout.</p>
+                </div>
+            </div>
+        `,
+        outputs: `
+             <div class="space-y-4">
+                <div class="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                    <h4 class="font-bold text-lg text-blue-800">Timing Reports</h4>
+                    <p class="mt-1 text-gray-700">These are detailed text files that list the timing analysis for specific paths. They show the startpoint, endpoint, the path through logic gates and nets, the arrival time of the signal, the required time, and the resulting slack.</p>
+                </div>
+                <div class="p-4 bg-green-50 rounded-lg border border-green-200">
+                    <h4 class="font-bold text-lg text-green-800">Slack Histograms</h4>
+                    <p class="mt-1 text-gray-700">A graphical representation showing the distribution of slack values across all endpoints in the design. It helps to quickly gauge the overall timing health of the chip. A healthy design has a histogram shifted towards positive slack with no negative values.</p>
+                </div>
+                 <div class="p-4 bg-red-50 rounded-lg border border-red-200">
+                    <h4 class="font-bold text-lg text-red-800">Violation Reports</h4>
+                    <p class="mt-1 text-gray-700">The most critical output. This is a list of all paths that have failed timing (i.e., have negative slack). Engineers focus on fixing the paths with the "Worst Negative Slack" (WNS) first. The report will detail setup violations (signal too slow) and hold violations (signal too fast).</p>
+                </div>
+            </div>
+        `
+    };
+
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const tabContent = document.getElementById('tab-content');
+
+    function switchTab(tab) {
+        tabButtons.forEach(btn => btn.classList.remove('tab-button-active'));
+        document.querySelector(`.tab-button[data-tab="${tab}"]`).classList.add('tab-button-active');
+        tabContent.innerHTML = tabData[tab];
+    }
+    
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => switchTab(button.dataset.tab));
+    });
+
+    switchTab('inputs');
+
+    const ctx = document.getElementById('timingChart').getContext('2d');
+    const preLayoutData = {
+        labels: ['Path A', 'Path B', 'Path C', 'Path D', 'Path E'],
+        datasets: [{
+            label: 'Timing Slack (ns)',
+            data: [0.85, 1.20, 0.50, -0.05, 0.95],
+            backgroundColor: 'rgba(59, 130, 246, 0.6)',
+            borderColor: 'rgba(59, 130, 246, 1)',
+            borderWidth: 1
+        }]
+    };
+    const postLayoutData = {
+        labels: ['Path A', 'Path B', 'Path C', 'Path D', 'Path E'],
+        datasets: [{
+            label: 'Timing Slack (ns)',
+            data: [0.32, 0.65, -0.15, -0.78, 0.40],
+            backgroundColor: 'rgba(22, 163, 74, 0.6)',
+            borderColor: 'rgba(22, 163, 74, 1)',
+            borderWidth: 1
+        }]
+    };
+    
+    const chartConfig = {
+        type: 'bar',
+        data: preLayoutData,
+        options: {
+            maintainAspectRatio: false,
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Timing Slack Comparison',
+                    font: { size: 18 }
+                },
+                legend: { display: false }
+            },
+            scales: {
+                y: {
+                    beginAtZero: false,
+                    title: {
+                        display: true,
+                        text: 'Slack (nanoseconds)'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Critical Timing Paths'
+                    }
+                }
+            }
+        }
+    };
+    
+    let timingChart = new Chart(ctx, chartConfig);
+
+    document.getElementById('preLayoutBtn').addEventListener('click', () => {
+        timingChart.data = preLayoutData;
+        timingChart.options.plugins.title.text = 'Timing Slack (Pre-Layout Estimate)';
+        timingChart.update();
+    });
+
+    document.getElementById('postLayoutBtn').addEventListener('click', () => {
+        timingChart.data = postLayoutData;
+        timingChart.options.plugins.title.text = 'Timing Slack (Post-Layout Accurate)';
+        timingChart.update();
+    });
+
+    const chatInput = document.getElementById('chat-input');
+    const chatSendBtn = document.getElementById('chat-send');
+    const chatHistory = document.getElementById('chat-history');
+    const loadingIndicator = document.getElementById('loading-indicator');
+    const apiKey = ""; 
+
+    async function sendChat() {
+        const prompt = chatInput.value.trim();
+        if (prompt === '') return;
+
+        chatInput.value = '';
+        const userBubble = document.createElement('div');
+        userBubble.className = 'chat-bubble user-bubble p-4 self-end';
+        userBubble.textContent = prompt;
+        chatHistory.appendChild(userBubble);
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+
+        loadingIndicator.classList.remove('hidden');
+
+        const systemInstruction = "You are an expert in ASIC design and Static Timing Analysis (STA). You provide clear, concise, and helpful answers. Use LaTeX for any mathematical notation and wrap it in single dollar signs for inline or double dollar signs for display. For example: $R_{wire}$ or $$ t_{prop} = \text{delay} $$";
+        
+        try {
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemInstruction }] },
+            };
+            
+            let attempts = 0;
+            const maxAttempts = 5;
+            let success = false;
+            let response;
+            
+            while(attempts < maxAttempts && !success) {
+                try {
+                    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (response.ok) {
+                        success = true;
+                    } else if (response.status === 429) {
+                        attempts++;
+                        await new Promise(res => setTimeout(res, 2 ** attempts * 1000));
+                    } else {
+                        throw new Error(`API error: ${response.statusText}`);
+                    }
+                } catch (e) {
+                    attempts++;
+                    if (attempts >= maxAttempts) throw e;
+                    await new Promise(res => setTimeout(res, 2 ** attempts * 1000));
+                }
+            }
+
+            if (!success) {
+                throw new Error("Failed to get a response after multiple attempts.");
+            }
+
+            const result = await response.json();
+            const text = result?.candidates?.[0]?.content?.parts?.[0]?.text || "Sorry, I couldn't generate a response.";
+
+            const aiBubble = document.createElement('div');
+            aiBubble.className = 'chat-bubble ai-bubble p-4 self-start markdown';
+            aiBubble.innerHTML = marked.parse(text);
+            chatHistory.appendChild(aiBubble);
+            
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+
+            renderMathInElement(aiBubble, {
+                delimiters: [
+                    {left: '$$', right: '$$', display: true},
+                    {left: '$', right: '$', display: false},
+                ],
+                throwOnError: false
+            });
+
+        } catch (error) {
+            const errorBubble = document.createElement('div');
+            errorBubble.className = 'chat-bubble ai-bubble p-4 self-start';
+            errorBubble.textContent = "Error: " + error.message;
+            chatHistory.appendChild(errorBubble);
+        } finally {
+            loadingIndicator.classList.add('hidden');
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+    }
+
+    chatSendBtn.addEventListener('click', sendChat);
+    chatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            sendChat();
+        }
+    });
+});
+</script>
+
+</body>
+</html>
